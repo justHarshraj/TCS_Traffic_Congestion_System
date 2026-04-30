@@ -54,8 +54,10 @@ python main.py --source path/to/video.mp4
 - Press **'q'** to quit the application.
 
 ## Files
-- `main.py`: Entry point.
+- `main.py`: Entry point for standard tracking.
+- `main_full.py`: Entry point with full ROI handling and dashboard visualization.
 - `tracker.py`: Wrapper for YOLOv8 tracking.
 - `congestion_logic.py`: Logic to determine traffic status.
+- `location_service.py`: IP-based device location detection.
 - `utils.py`: Helper functions for drawing and geometry.
 - `detector.py`: Standalone detector module (optional).
