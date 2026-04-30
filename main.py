@@ -11,6 +11,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 import certifi
+from location_service import get_device_location
 
 # Professional Color Theme (BGR)
 COLOR_BG = (30, 30, 30)
@@ -35,6 +36,18 @@ def save_congestion_image(frame):
                 (0, 0, 255),
                 2)
 
+    lat, lon, _ = get_device_location()
+
+    cv2.putText(
+        frame,
+        f"Lat: {lat}  Lon: {lon}",
+        (20, 80),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (0, 0, 255),
+        2
+    )
+
     filename = f"{folder}/congestion_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.jpg"
 
     cv2.imwrite(filename, frame)
@@ -55,13 +68,22 @@ def send_email_alert(image_path, vehicle_count):
     msg["From"] = sender_email
     msg["To"] = receiver_email
 
+    latitude, longitude, map_link = get_device_location()
+
     msg.set_content(f"""
-Traffic Congestion Detected!
+🚨 Traffic Congestion Detected
 
 Vehicle Count: {vehicle_count}
 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
-Please check the attached image captured by TCS.
+📍 Coordinates
+Latitude: {latitude}
+Longitude: {longitude}
+
+🗺 Google Maps
+{map_link}
+
+See attached congestion image.
 """)
 
     # Attach image

@@ -2,7 +2,7 @@ import cv2
 import argparse
 import time
 from tracker import VehicleTracker
-from congestion_logic import CongestionAnalyzer
+from congestion_logic import CongestionDetector
 from utils import draw_text, draw_roi, is_inside_roi
 import numpy as np
 
@@ -14,7 +14,7 @@ def main():
 
     # Initialize components
     tracker = VehicleTracker() # Defaults to yolov8n.pt
-    analyzer = CongestionAnalyzer()
+    detector = CongestionDetector()
 
     # Handle video source
     source = args.source
@@ -82,7 +82,9 @@ def main():
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (100, 100, 100), 1)
 
         # 3. Analyze Congestion
-        status, color = analyzer.analyze(current_vehicle_count)
+        is_congested = detector.update(current_vehicle_count)
+        status = "CONGESTED" if is_congested else "NORMAL"
+        color = (0, 0, 255) if is_congested else (0, 255, 0) # Red if congested, else Green
 
         # 4. Visualization
         draw_roi(frame, roi_points, color=(255, 255, 0), thickness=2)
