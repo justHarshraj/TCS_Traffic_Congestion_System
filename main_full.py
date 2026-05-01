@@ -5,6 +5,100 @@ from tracker import VehicleTracker
 from congestion_logic import CongestionDetector
 from utils import draw_text, draw_roi, is_inside_roi
 import numpy as np
+import os
+from datetime import datetime
+import matplotlib.pyplot as plt
+import smtplib
+import ssl
+from email.message import EmailMessage
+import certifi
+from location_service import get_device_location
+from plyer import notification
+
+# Professional Color Theme (BGR)
+COLOR_BG = (30, 30, 30)
+COLOR_TEXT = (255, 255, 255)
+COLOR_NORMAL = (0, 200, 0)
+COLOR_ALERT = (0, 0, 255)
+COLOR_PANEL = (50, 50, 50)
+
+def save_congestion_image(frame):
+    folder = "congestion_images"
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cv2.putText(frame, f"Time: {timestamp}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    lat, lon, _ = get_device_location()
+    cv2.putText(frame, f"Lat: {lat}  Lon: {lon}", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
+    filename = f"{folder}/congestion_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.jpg"
+    cv2.imwrite(filename, frame)
+    print(f"📸 Image saved: {filename}")
+    return filename
+
+def send_email_alert(image_path, vehicle_count):
+    sender_email = "harshrajs1k@gmail.com"
+    app_password = "xykr zwku xulz whzn"
+    receiver_email = "riteshpatel.cvl@indusuni.ac.in"
+
+    msg = EmailMessage()
+    msg["Subject"] = "🚨 Traffic Congestion Alert - TCS"
+    msg["From"] = sender_email
+    msg["To"] = receiver_email
+
+    latitude, longitude, map_link = get_device_location()
+
+    msg.set_content(f"""
+🚨 Traffic Congestion Detected
+
+Vehicle Count: {vehicle_count}
+Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+📍 Coordinates
+Latitude: {latitude}
+Longitude: {longitude}
+
+🗺 Google Maps
+{map_link}
+
+See attached congestion image.
+""")
+
+    with open(image_path, "rb") as f:
+        file_data = f.read()
+        file_name = f.name
+
+    msg.add_attachment(file_data, maintype="image", subtype="jpeg", filename=file_name)
+
+    context = ssl.create_default_context(cafile=certifi.where())
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            server.login(sender_email, app_password)
+            server.send_message(msg)
+        print("📧 Email alert sent successfully!")
+    except Exception as e:
+        print(f"❌ Failed to send email alert: {e}")
+
+def save_vehicle_graph(vehicle_history):
+    folder = "analytics_graphs"
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"{folder}/vehicle_graph_{timestamp}.png"
+
+    plt.figure(figsize=(10,5))
+    plt.plot(vehicle_history)
+    plt.title("Vehicle Count Over Time")
+    plt.xlabel("Frames")
+    plt.ylabel("Vehicle Count")
+    plt.grid(True)
+
+    plt.savefig(filename)
+    plt.close()
+    print(f"📊 Graph saved at: {filename}")
 
 def main():
     parser = argparse.ArgumentParser(description="Traffic Congestion System")
@@ -14,7 +108,7 @@ def main():
 
     # Initialize components
     tracker = VehicleTracker() # Defaults to yolov8n.pt
-    detector = CongestionDetector()
+    detector = CongestionDetector(threshold=6, duration=6)
 
     # Handle video source
     source = args.source
@@ -44,6 +138,11 @@ def main():
     ], np.int32)
 
     print("Starting TCS... Press 'q' to exit.")
+
+    blink_state = False
+    blink_timer = 0
+    vehicle_history = []
+    frame_count = 0
 
     while True:
         start_time = time.time()
@@ -83,16 +182,63 @@ def main():
 
         # 3. Analyze Congestion
         is_congested = detector.update(current_vehicle_count)
+        
+        # Add to history
+        vehicle_history.append(current_vehicle_count)
+        if len(vehicle_history) > 100:
+            vehicle_history.pop(0)
+
+        if is_congested and not detector.alert_sent:
+            print("🚨 Traffic Jam Detected!")
+            image_path = save_congestion_image(frame)
+            send_email_alert(image_path, current_vehicle_count)
+            save_vehicle_graph(vehicle_history)
+            
+            try:
+                notification.notify(
+                    title="Traffic Congestion Alert",
+                    message="Traffic Jam Detected!",
+                    timeout=5
+                )
+            except Exception as e:
+                print(f"NOTIFICATION FAILED (Platform not supported?): {e}")
+            
+            detector.alert_sent = True
+
         status = "CONGESTED" if is_congested else "NORMAL"
-        color = (0, 0, 255) if is_congested else (0, 255, 0) # Red if congested, else Green
+        color = COLOR_ALERT if is_congested else COLOR_NORMAL # Red if congested, else Green
 
         # 4. Visualization
         draw_roi(frame, roi_points, color=(255, 255, 0), thickness=2)
         
         # Dashboard info
-        cv2.rectangle(frame, (0, 0), (w, 60), (0, 0, 0), -1)
+        cv2.rectangle(frame, (0, 0), (w, 60), COLOR_PANEL, -1)
         draw_text(frame, f"Status: {status}", (20, 40), font_scale=1.0, text_color=color, text_color_bg=(50, 50, 50))
         draw_text(frame, f"Vehicles in ROI: {current_vehicle_count}", (w - 300, 40), font_scale=0.8, text_color=(255, 255, 255), text_color_bg=(50, 50, 50))
+
+        # Congestion Progress Bar
+        if current_vehicle_count > detector.threshold:
+            duration = detector.duration if hasattr(detector, 'duration') else 10
+            progress = min(detector.elapsed_time / duration, 1)
+            bar_width = int(progress * w)
+            cv2.rectangle(frame, (0, h - 80), (bar_width, h - 60), (0, 0, 255), -1)
+            cv2.putText(frame, "Congestion Timer", (20, h - 65), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # Display Jam Warning Banner if Congested (Blinking)
+        if is_congested: 
+            current_time_sec = time.time()
+            if current_time_sec - blink_timer > 0.5:
+                blink_state = not blink_state
+                blink_timer = current_time_sec
+            
+            if blink_state:
+                cv2.rectangle(frame, (0, 60), (w, 120), COLOR_ALERT, -1)
+                cv2.putText(frame, "TRAFFIC CONGESTION DETECTED", (w//4, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 3)
+
+            # Beep logic
+            frame_count += 1
+            if frame_count % 30 == 0: 
+                 print('\a') 
 
         fps = 1.0 / (time.time() - start_time)
         cv2.putText(frame, f"FPS: {fps:.1f}", (10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
@@ -104,6 +250,7 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
+    save_vehicle_graph(vehicle_history)
 
 if __name__ == "__main__":
     main()
