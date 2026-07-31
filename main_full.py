@@ -40,7 +40,7 @@ def save_congestion_image(frame):
 def send_email_alert(image_path, vehicle_count):
     sender_email = "harshrajs1k@gmail.com"
     app_password = "xykr zwku xulz whzn"
-    receiver_email = "riteshpatel.cvl@indusuni.ac.in"
+    receiver_email = "rajharsh.23.cse@iite.indusuni.ac.in"
 
     msg = EmailMessage()
     msg["Subject"] = "🚨 Traffic Congestion Alert - TCS"
