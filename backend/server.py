@@ -6,7 +6,7 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 import certifi
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_from_directory
 from flask_cors import CORS
 from datetime import datetime
 import numpy as np
@@ -15,6 +15,7 @@ import numpy as np
 from tracker import VehicleTracker
 from congestion_logic import CongestionDetector
 from location_service import get_device_location
+from database import init_db, save_alert, get_all_alerts
 
 app = Flask(__name__)
 CORS(app)
@@ -27,7 +28,11 @@ global_state = {
     "longitude": 0.0,
     "map_link": "",
     "camera_active": False,
-    "last_alert_time": 0
+    "last_alert_time": 0,
+    "settings": {
+        "threshold": 10,
+        "receiver_email": "rajharsh.23.cse@iite.indusuni.ac.in"
+    }
 }
 
 # The latest frame encoded as JPEG
@@ -41,7 +46,7 @@ COLOR_ALERT = (0, 0, 255)
 COLOR_PANEL = (50, 50, 50)
 
 def save_congestion_image(frame):
-    folder = "congestion_images"
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "congestion_images")
     if not os.path.exists(folder):
         os.makedirs(folder)
 
@@ -61,7 +66,7 @@ def save_congestion_image(frame):
 def send_email_alert(image_path, vehicle_count):
     sender_email = "harshrajs1k@gmail.com"
     app_password = "xykr zwku xulz whzn"
-    receiver_email = "rajharsh.23.cse@iite.indusuni.ac.in"
+    receiver_email = global_state["settings"]["receiver_email"]
 
     msg = EmailMessage()
     msg["Subject"] = "🚨 Traffic Congestion Alert - TCS"
@@ -92,14 +97,29 @@ See attached congestion image.
         msg.add_attachment(f.read(), maintype="image", subtype="jpeg", filename=f.name)
 
     context = ssl.create_default_context(cafile=certifi.where())
+    email_sent = False
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
             server.login(sender_email, app_password)
             server.send_message(msg)
         print("📧 Email alert sent successfully!")
         global_state["last_alert_time"] = time.time()
+        email_sent = True
     except Exception as e:
         print(f"❌ Failed to send email alert: {e}")
+    
+    # Save to database regardless of email success/failure
+    try:
+        save_alert(
+            vehicle_count=vehicle_count,
+            latitude=latitude,
+            longitude=longitude,
+            map_link=map_link,
+            image_path=image_path,
+            email_sent=email_sent
+        )
+    except Exception as e:
+        print(f"❌ Failed to save alert to database: {e}")
 
 
 def get_offline_frame():
@@ -131,6 +151,21 @@ def video_feed():
 def status():
     return jsonify(global_state)
 
+@app.route('/api/alerts')
+def alerts():
+    """Return all recorded congestion alerts as JSON."""
+    try:
+        all_alerts = get_all_alerts()
+        return jsonify({"alerts": all_alerts, "count": len(all_alerts)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/alerts/images/<path:filename>')
+def alert_image(filename):
+    """Serve congestion images so the frontend can display them."""
+    image_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "congestion_images")
+    return send_from_directory(image_dir, filename)
+
 @app.route('/api/camera/toggle', methods=['POST'])
 def toggle_camera():
     data = request.get_json()
@@ -139,12 +174,23 @@ def toggle_camera():
         return jsonify({"success": True, "camera_active": global_state["camera_active"]})
     return jsonify({"success": False}), 400
 
+@app.route('/api/settings', methods=['GET', 'POST'])
+def handle_settings():
+    if request.method == 'POST':
+        data = request.get_json()
+        if 'threshold' in data:
+            global_state["settings"]["threshold"] = int(data["threshold"])
+        if 'receiver_email' in data:
+            global_state["settings"]["receiver_email"] = str(data["receiver_email"])
+        return jsonify({"success": True, "settings": global_state["settings"]})
+    return jsonify(global_state["settings"])
+
 def tracking_thread():
     global latest_frame_jpeg, global_state
     
     cap = None
     tracker = VehicleTracker() 
-    detector = CongestionDetector(threshold=10, duration=10)
+    detector = CongestionDetector(threshold=global_state["settings"]["threshold"], duration=10)
     
     frame_skip = 2
     frame_count = 0
@@ -190,6 +236,9 @@ def tracking_thread():
                     x1, y1, x2, y2 = map(int, box)
                     current_vehicles.append((x1, y1, x2, y2, int(track_id)))
 
+            # Update detector threshold dynamically
+            detector.threshold = global_state["settings"]["threshold"]
+            
             jam = detector.update(len(current_vehicles))
             
             # Send Email Alert if newly jammed
@@ -224,6 +273,9 @@ def tracking_thread():
             latest_frame_jpeg = buffer
 
 if __name__ == '__main__':
+    # Initialize the database
+    init_db()
+    
     # Start tracking loop in a background thread
     t = threading.Thread(target=tracking_thread, daemon=True)
     t.start()

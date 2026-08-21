@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { Camera, AlertTriangle, CheckCircle2, Activity, MapPin, Power, MailCheck } from 'lucide-react';
+import { Camera, AlertTriangle, CheckCircle2, Activity, MapPin, Power, MailCheck, Database, CheckCircle, XCircle, ExternalLink } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import './index.css';
 
-const TopNav = () => (
+const TopNav = ({ activeTab, onTabChange, onSettingsClick }: { activeTab: string; onTabChange: (tab: string) => void; onSettingsClick: () => void }) => (
   <nav style={{ 
     height: '64px', 
     backgroundColor: 'var(--canvas)',
@@ -20,10 +20,9 @@ const TopNav = () => (
       <span style={{ fontFamily: 'var(--font-display)', fontSize: '22px', fontWeight: 'bold' }}>TCS Dashboard</span>
     </div>
     <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-      <a href="#">Product</a>
-      <a href="#">Analytics</a>
-      <a href="#">Alerts</a>
-      <button className="btn-primary" style={{ marginLeft: '12px' }}>System Settings</button>
+      <a href="#" onClick={(e) => { e.preventDefault(); onTabChange('dashboard'); }} style={{ color: activeTab === 'dashboard' ? 'var(--primary)' : 'var(--ink)' }}>Dashboard</a>
+      <a href="#" onClick={(e) => { e.preventDefault(); onTabChange('alerts'); }} style={{ color: activeTab === 'alerts' ? 'var(--primary)' : 'var(--ink)' }}>Alert History</a>
+      <button className="btn-primary" style={{ marginLeft: '12px' }} onClick={onSettingsClick}>System Settings</button>
     </div>
   </nav>
 );
@@ -38,19 +37,19 @@ interface MetricCardProps {
 
 const MetricCard = ({ title, value, subtitle, icon: Icon, type = 'normal' }: MetricCardProps) => {
   return (
-    <div className="card-feature" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <div className="card-feature" style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '16px', fontWeight: 500, color: 'var(--ink)' }}>{title}</h4>
+        <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '18px', fontWeight: 600, color: 'var(--ink)' }}>{title}</h4>
         <div style={{ color: type === 'alert' ? 'var(--error)' : 'var(--success)' }}>
-          <Icon size={20} />
+          <Icon size={28} />
         </div>
       </div>
       
       <div>
-        <div style={{ fontSize: '36px', fontFamily: 'var(--font-display)', color: type === 'alert' ? 'var(--error)' : 'var(--ink)' }}>
+        <div style={{ fontSize: '36px', fontFamily: 'var(--font-display)', color: type === 'alert' ? 'var(--error)' : 'var(--ink)', fontWeight: 600 }}>
           {value}
         </div>
-        <div style={{ fontSize: '13px', color: 'var(--muted)', marginTop: '4px' }}>
+        <div style={{ fontSize: '15px', color: 'var(--muted)', marginTop: '8px' }}>
           {subtitle}
         </div>
       </div>
@@ -67,7 +66,7 @@ interface CameraFeedProps {
 
 const CameraFeed = ({ vehicleCount, isCongested, isCameraActive, onToggleCamera }: CameraFeedProps) => {
   return (
-    <div className="card-code" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '500px' }}>
+    <div className="card-code" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: '450px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px', borderBottom: '1px solid var(--surface-dark-elevated)', paddingBottom: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ display: 'flex', gap: '6px' }}>
@@ -147,6 +146,189 @@ const CameraFeed = ({ vehicleCount, isCongested, isCameraActive, onToggleCamera 
   );
 };
 
+// ===== Alert Data Types =====
+interface AlertRecord {
+  id: number;
+  timestamp: string;
+  vehicle_count: number;
+  latitude: number;
+  longitude: number;
+  map_link: string;
+  image_path: string;
+  email_sent: boolean;
+}
+
+// ===== Image Modal / Lightbox =====
+const ImageModal = ({ src, onClose }: { src: string; onClose: () => void }) => (
+  <div className="image-modal-overlay" onClick={onClose}>
+    <button className="image-modal-close" onClick={onClose}>×</button>
+    <img
+      className="image-modal-content"
+      src={src}
+      alt="Congestion snapshot"
+      onClick={(e) => e.stopPropagation()}
+    />
+  </div>
+);
+
+// ===== Alert History Component =====
+const AlertHistory = ({ alerts }: { alerts: AlertRecord[] }) => {
+  const [modalImage, setModalImage] = useState<string | null>(null);
+
+  const getImageUrl = (imagePath: string) => {
+    // image_path is like "congestion_images/congestion_2026-08-21_16-30-00.jpg"
+    // We need just the filename part to pass to our API
+    const filename = imagePath.split('/').pop() || imagePath;
+    return `http://localhost:5001/api/alerts/images/${filename}`;
+  };
+
+  return (
+    <>
+      {modalImage && <ImageModal src={modalImage} onClose={() => setModalImage(null)} />}
+
+      <section className="alert-history-section">
+        <div className="alert-history-header">
+          <h2>Alert History</h2>
+          <div className="alert-count-badge">
+            <Database size={14} />
+            {alerts.length} {alerts.length === 1 ? 'Record' : 'Records'}
+          </div>
+        </div>
+
+        <div className="alert-table-wrapper">
+          {alerts.length === 0 ? (
+            <div className="alert-empty-state">
+              <Database size={48} className="empty-icon" />
+              <p>No congestion alerts recorded yet.</p>
+              <p style={{ fontSize: '13px', marginTop: '4px', color: 'var(--muted-soft)' }}>
+                Alerts will appear here when traffic congestion is detected.
+              </p>
+            </div>
+          ) : (
+            <div className="alert-table-scroll">
+              <table className="alert-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Date / Time</th>
+                    <th>Vehicles</th>
+                    <th>Location</th>
+                    <th>Map</th>
+                    <th>Image</th>
+                    <th>Email</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {alerts.map((alert) => (
+                    <tr key={alert.id}>
+                      <td className="cell-id">{alert.id}</td>
+                      <td className="cell-timestamp">{alert.timestamp}</td>
+                      <td className="cell-vehicle-count">{alert.vehicle_count}</td>
+                      <td className="cell-coords">
+                        {alert.latitude.toFixed(4)}, {alert.longitude.toFixed(4)}
+                      </td>
+                      <td className="cell-map-link">
+                        {alert.map_link ? (
+                          <a href={alert.map_link} target="_blank" rel="noopener noreferrer">
+                            Open Map <ExternalLink size={12} />
+                          </a>
+                        ) : (
+                          <span style={{ color: 'var(--muted-soft)', fontSize: '12px' }}>N/A</span>
+                        )}
+                      </td>
+                      <td>
+                        <img
+                          className="alert-thumbnail"
+                          src={getImageUrl(alert.image_path)}
+                          alt={`Alert #${alert.id}`}
+                          onClick={() => setModalImage(getImageUrl(alert.image_path))}
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      </td>
+                      <td>
+                        {alert.email_sent ? (
+                          <span className="status-sent">
+                            <CheckCircle size={12} /> Sent
+                          </span>
+                        ) : (
+                          <span className="status-failed">
+                            <XCircle size={12} /> Failed
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+    </>
+  );
+};
+
+const SettingsModal = ({ 
+  isOpen, 
+  onClose, 
+  initialThreshold, 
+  initialEmail, 
+  onSave 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  initialThreshold: number; 
+  initialEmail: string; 
+  onSave: (threshold: number, email: string) => void;
+}) => {
+  const [threshold, setThreshold] = useState(initialThreshold);
+  const [email, setEmail] = useState(initialEmail);
+
+  useEffect(() => {
+    setThreshold(initialThreshold);
+    setEmail(initialEmail);
+  }, [initialThreshold, initialEmail, isOpen]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', padding: '24px' }}>
+        <h3 style={{ marginBottom: '24px', fontFamily: 'var(--font-display)', fontSize: '20px' }}>System Settings</h3>
+        
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold', fontSize: '14px' }}>Congestion Threshold (vehicles)</label>
+          <input 
+            type="number" 
+            value={threshold} 
+            onChange={(e) => setThreshold(Number(e.target.value))}
+            style={{ width: '100%', padding: '10px', borderRadius: 'var(--rounded-md)', border: '1px solid var(--hairline)' }}
+          />
+        </div>
+
+        <div style={{ marginBottom: '24px' }}>
+          <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold', fontSize: '14px' }}>Notification Email</label>
+          <input 
+            type="email" 
+            value={email} 
+            onChange={(e) => setEmail(e.target.value)}
+            style={{ width: '100%', padding: '10px', borderRadius: 'var(--rounded-md)', border: '1px solid var(--hairline)' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={() => {
+            onSave(threshold, email);
+            onClose();
+          }}>Save Settings</button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 function App() {
   const [vehicleCount, setVehicleCount] = useState(0);
@@ -154,6 +336,11 @@ function App() {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [location, setLocation] = useState({ lat: 23.0225, lon: 72.5714 });
   const [showPopup, setShowPopup] = useState(false);
+  const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState({ threshold: 10, receiver_email: 'rajharsh.23.cse@iite.indusuni.ac.in' });
   
   // Use a ref to hold the last alert time to avoid closure capture issues in setInterval
   const lastAlertTimeRef = useRef(0);
@@ -200,6 +387,10 @@ function App() {
           if (data.latitude && data.longitude) {
             setLocation({ lat: data.latitude, lon: data.longitude });
           }
+          
+          if (data.settings) {
+            setSettings(data.settings);
+          }
         }
       } catch (err) {
         console.error("Could not fetch status from backend:", err);
@@ -210,7 +401,42 @@ function App() {
     const interval = setInterval(fetchStatus, 1000); // Poll every second
     return () => clearInterval(interval);
   }, []);
-  
+
+  // Fetch alert history from backend
+  useEffect(() => {
+    const fetchAlerts = async () => {
+      try {
+        const response = await fetch('http://localhost:5001/api/alerts');
+        if (response.ok) {
+          const data = await response.json();
+          setAlerts(data.alerts || []);
+        }
+      } catch (err) {
+        console.error("Could not fetch alerts from backend:", err);
+      }
+    };
+
+    fetchAlerts(); // initial fetch
+    const interval = setInterval(fetchAlerts, 10000); // Refresh every 10 seconds
+    return () => clearInterval(interval);
+  }, []);
+  const handleSaveSettings = async (threshold: number, receiver_email: string) => {
+    try {
+      const response = await fetch('http://localhost:5001/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threshold, receiver_email })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setSettings(data.settings);
+      }
+    } catch (err) {
+      console.error("Failed to save settings", err);
+    }
+  };
+
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       
@@ -269,83 +495,79 @@ function App() {
         </button>
       </div>
 
-      <TopNav />
+      <TopNav activeTab={activeTab} onTabChange={setActiveTab} onSettingsClick={() => setIsSettingsOpen(true)} />
       
-      <main className="container" style={{ flex: 1, padding: 'var(--spacing-section) var(--spacing-xl)' }}>
+      <main className="container" style={{ padding: 'var(--spacing-xxl) var(--spacing-xl)', position: 'relative' }}>
         
-        {/* Header */}
-        <div style={{ marginBottom: 'var(--spacing-xxl)' }}>
-          <div className="badge-pill" style={{ marginBottom: '16px' }}>Live Monitoring System</div>
-          <h1>Traffic Congestion System</h1>
-          <p style={{ fontSize: '18px', color: 'var(--muted)', marginTop: '16px', maxWidth: '600px' }}>
-            Real-time vehicle tracking and congestion detection using YOLOv8 bounding boxes and ByteTrack.
-          </p>
-        </div>
-        
-        {/* Dashboard Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: 'var(--spacing-xl)' }}>
-          
-          {/* Main Feed */}
-          <div>
-            <CameraFeed 
-              vehicleCount={vehicleCount} 
-              isCongested={isCongested} 
-              isCameraActive={isCameraActive}
-              onToggleCamera={handleToggleCamera}
-            />
-          </div>
-          
-          {/* Sidebar Stats */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-lg)' }}>
-            
-            <MetricCard 
-              title="Current Status" 
-              value={isCongested ? "Congested" : "Normal Flow"} 
-              subtitle={isCongested ? "Traffic jam detected at intersection." : "Traffic is flowing smoothly."}
-              icon={isCongested ? AlertTriangle : CheckCircle2}
-              type={isCongested ? 'alert' : 'normal'}
-            />
-            
-            <MetricCard 
-              title="Vehicles Detected" 
-              value={vehicleCount} 
-              subtitle="Threshold: 10 vehicles"
-              icon={Activity}
-              type={isCongested ? 'alert' : 'normal'}
-            />
-            
-            <MetricCard 
-              title="Location" 
-              value="Live Tracker" 
-              subtitle={`Lat: ${location.lat}, Lon: ${location.lon}`}
-              icon={MapPin}
-            />
-            
-            {/* Action Card */}
-            {isCongested && (
-              <div className="card-coral" style={{ marginTop: 'auto' }}>
-                <h4 style={{ color: 'var(--on-primary)', marginBottom: '8px' }}>Alert Triggered</h4>
-                <p style={{ fontSize: '14px', marginBottom: '24px', opacity: 0.9 }}>Email notifications and system alerts have been sent to local authorities.</p>
-                <button className="btn-secondary" style={{ width: '100%' }}>View Incident Report</button>
+        {activeTab === 'dashboard' ? (
+          <>
+            {/* Dashboard Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: 'var(--spacing-xl)', alignItems: 'stretch' }}>
+              
+              {/* Main Feed */}
+              <div style={{ minWidth: 0, height: '100%' }}>
+                <CameraFeed 
+                  vehicleCount={vehicleCount} 
+                  isCongested={isCongested} 
+                  isCameraActive={isCameraActive}
+                  onToggleCamera={handleToggleCamera}
+                />
               </div>
-            )}
-            
-          </div>
-        </div>
+              
+              {/* Sidebar Stats */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%', gap: 'var(--spacing-lg)' }}>
+                
+                <MetricCard 
+                  title="Current Status" 
+                  value={isCongested ? "Congested" : "Normal Flow"} 
+                  subtitle={isCongested ? "Traffic jam detected at intersection." : "Traffic is flowing smoothly."}
+                  icon={isCongested ? AlertTriangle : CheckCircle2}
+                  type={isCongested ? 'alert' : 'normal'}
+                />
+                
+                <MetricCard 
+                  title="Vehicles Detected" 
+                  value={vehicleCount} 
+                  subtitle={`Threshold: ${settings.threshold} vehicles`}
+                  icon={Activity}
+                  type={isCongested ? 'alert' : 'normal'}
+                />
+                
+                <MetricCard 
+                  title="Location" 
+                  value="Live Tracker" 
+                  subtitle={`Lat: ${location.lat}, Lon: ${location.lon}`}
+                  icon={MapPin}
+                />
+                
+                {/* Action Card */}
+                {isCongested && (
+                  <div className="card-coral" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <h4 style={{ color: 'var(--on-primary)', marginBottom: '8px' }}>Alert Triggered</h4>
+                    <p style={{ fontSize: '14px', marginBottom: '24px', opacity: 0.9 }}>Email notifications and system alerts have been sent to local authorities.</p>
+                    <button className="btn-secondary" style={{ width: '100%' }}>View Incident Report</button>
+                  </div>
+                )}
+                
+              </div>
+            </div>
+          </>
+        ) : (
+          /* Alert History Section */
+          <AlertHistory alerts={alerts} />
+        )}
+        
       </main>
+
+      <SettingsModal 
+        isOpen={isSettingsOpen} 
+        onClose={() => setIsSettingsOpen(false)} 
+        initialThreshold={settings.threshold}
+        initialEmail={settings.receiver_email}
+        onSave={handleSaveSettings}
+      />
       
-      {/* Footer */}
-      <footer style={{ backgroundColor: 'var(--surface-dark)', padding: 'var(--spacing-xxl)', color: 'var(--on-dark-soft)', marginTop: 'var(--spacing-section)' }}>
-        <div className="container" style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontWeight: 'bold', color: 'var(--on-dark)', marginBottom: '16px' }}>Anthropic Inspired TCS</div>
-            <p style={{ fontSize: '14px' }}>Traffic Congestion System</p>
-          </div>
-          <div style={{ fontSize: '14px' }}>
-            &copy; 2026 Traffic Congestion System
-          </div>
-        </div>
-      </footer>
+
     </div>
   );
 }
