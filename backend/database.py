@@ -12,8 +12,20 @@ def get_connection():
     return conn
 
 
+def compute_severity(vehicle_count, threshold=10):
+    """Compute severity level based on vehicle count relative to threshold."""
+    if vehicle_count <= threshold:
+        return "LOW"
+    elif vehicle_count <= int(threshold * 1.5):
+        return "MEDIUM"
+    elif vehicle_count <= threshold * 2:
+        return "HIGH"
+    else:
+        return "CRITICAL"
+
+
 def init_db():
-    """Create the congestion_alerts and users tables if they don't exist."""
+    """Create the congestion_alerts and users tables if they don't exist, and add new analytics columns if needed."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -25,7 +37,10 @@ def init_db():
             longitude REAL NOT NULL,
             map_link TEXT NOT NULL,
             image_path TEXT NOT NULL,
-            email_sent INTEGER NOT NULL DEFAULT 0
+            email_sent INTEGER NOT NULL DEFAULT 0,
+            telegram_sent INTEGER NOT NULL DEFAULT 0,
+            duration_seconds INTEGER NOT NULL DEFAULT 0,
+            severity TEXT NOT NULL DEFAULT 'LOW'
         )
     """)
     cursor.execute("""
@@ -38,6 +53,17 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+    
+    # Check and add columns if upgrading existing database
+    cursor.execute("PRAGMA table_info(congestion_alerts)")
+    existing_cols = [col["name"] for col in cursor.fetchall()]
+    if "telegram_sent" not in existing_cols:
+        cursor.execute("ALTER TABLE congestion_alerts ADD COLUMN telegram_sent INTEGER NOT NULL DEFAULT 0")
+    if "duration_seconds" not in existing_cols:
+        cursor.execute("ALTER TABLE congestion_alerts ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 0")
+    if "severity" not in existing_cols:
+        cursor.execute("ALTER TABLE congestion_alerts ADD COLUMN severity TEXT NOT NULL DEFAULT 'LOW'")
+
     conn.commit()
     conn.close()
     print("✅ Database initialized successfully.")
@@ -101,18 +127,21 @@ def seed_default_admin(hash_func):
         print("👤 Default admin account created (admin@tcs.local). Change the password after first login.")
 
 
-def save_alert(vehicle_count, latitude, longitude, map_link, image_path, email_sent):
+def save_alert(vehicle_count, latitude, longitude, map_link, image_path, email_sent, telegram_sent=False, duration_seconds=0, severity=None):
     """Insert a new congestion alert record into the database."""
     conn = get_connection()
     cursor = conn.cursor()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not severity:
+        severity = compute_severity(vehicle_count)
+        
     cursor.execute("""
-        INSERT INTO congestion_alerts (timestamp, vehicle_count, latitude, longitude, map_link, image_path, email_sent)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (timestamp, vehicle_count, latitude, longitude, map_link, image_path, 1 if email_sent else 0))
+        INSERT INTO congestion_alerts (timestamp, vehicle_count, latitude, longitude, map_link, image_path, email_sent, telegram_sent, duration_seconds, severity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (timestamp, vehicle_count, latitude, longitude, map_link, image_path, 1 if email_sent else 0, 1 if telegram_sent else 0, duration_seconds, severity))
     conn.commit()
     conn.close()
-    print(f"💾 Alert saved to database (vehicles: {vehicle_count}, email_sent: {email_sent})")
+    print(f"💾 Alert saved to database (vehicles: {vehicle_count}, severity: {severity}, email_sent: {email_sent}, telegram_sent: {telegram_sent})")
 
 
 def get_all_alerts():
@@ -125,15 +154,20 @@ def get_all_alerts():
 
     alerts = []
     for row in rows:
+        alert_dict = dict(row)
+        v_count = alert_dict.get("vehicle_count", 0)
         alerts.append({
-            "id": row["id"],
-            "timestamp": row["timestamp"],
-            "vehicle_count": row["vehicle_count"],
-            "latitude": row["latitude"],
-            "longitude": row["longitude"],
-            "map_link": row["map_link"],
-            "image_path": row["image_path"],
-            "email_sent": bool(row["email_sent"]),
+            "id": alert_dict["id"],
+            "timestamp": alert_dict["timestamp"],
+            "vehicle_count": v_count,
+            "latitude": alert_dict["latitude"],
+            "longitude": alert_dict["longitude"],
+            "map_link": alert_dict["map_link"],
+            "image_path": alert_dict["image_path"],
+            "email_sent": bool(alert_dict.get("email_sent", 0)),
+            "telegram_sent": bool(alert_dict.get("telegram_sent", 0)),
+            "duration_seconds": alert_dict.get("duration_seconds", 0),
+            "severity": alert_dict.get("severity") or compute_severity(v_count),
         })
     return alerts
 
@@ -146,3 +180,4 @@ def get_alert_count():
     count = cursor.fetchone()[0]
     conn.close()
     return count
+

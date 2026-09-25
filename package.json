@@ -4,14 +4,14 @@
   "description": "Real-time Traffic Congestion System using YOLOv8 and ByteTrack",
   "private": true,
   "scripts": {
-    "dev": "concurrently -k -n BACKEND,FRONTEND -c bgBlue.bold,bgGreen.bold \"python3 backend/server.py\" \"npm --prefix frontend run dev:frontend\"",
-    "dev:frontend": "npm --prefix frontend run dev:frontend",
-    "dev:backend": "python3 backend/server.py",
-    "install:all": "pip3 install -r backend/requirements.txt && npm --prefix frontend install",
-    "install:frontend": "npm --prefix frontend install",
-    "build": "npm --prefix frontend run build"
+    "dev": "concurrently -k -p \"[{name}]\" -n \"BACKEND,FRONTEND\" -c \"yellow,cyan\" \"python backend/server.py\" \"cd frontend && npm run dev\"",
+    "dev:backend": "python backend/server.py",
+    "dev:frontend": "cd frontend && npm run dev",
+    "install:all": "pip install -r backend/requirements.txt && cd frontend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "build": "cd frontend && npm run build"
   },
   "devDependencies": {
-    "concurrently": "^10.0.4"
+    "concurrently": "^8.2.2"
   }
 }
