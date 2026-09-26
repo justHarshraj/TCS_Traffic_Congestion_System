@@ -1,13 +1,15 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { getMeApi, loginApi } from '../api/auth';
-import type { User } from '../api/auth';
+import { getMeApi, loginApi, verifyOtpApi, resendOtpApi } from '../api/auth';
+import type { User, LoginResponse } from '../api/auth';
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, pass: string) => Promise<LoginResponse>;
+  verifyOtp: (email: string, otp: string) => Promise<LoginResponse>;
+  resendOtp: (email: string) => Promise<{ success: boolean; message?: string; error?: string; dev_otp?: string }>;
   logout: () => void;
 }
 
@@ -38,15 +40,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     initAuth();
   }, []);
 
-  const login = async (email: string, pass: string) => {
+  const login = async (email: string, pass: string): Promise<LoginResponse> => {
     const res = await loginApi(email, pass);
     if (res.success && res.token && res.user) {
       localStorage.setItem('tcs_token', res.token);
       setToken(res.token);
       setUser(res.user);
-      return { success: true };
     }
-    return { success: false, error: res.error || 'Login failed' };
+    return res;
+  };
+
+  const verifyOtp = async (email: string, otp: string): Promise<LoginResponse> => {
+    const res = await verifyOtpApi(email, otp);
+    if (res.success && res.token && res.user) {
+      localStorage.setItem('tcs_token', res.token);
+      setToken(res.token);
+      setUser(res.user);
+    }
+    return res;
+  };
+
+  const resendOtp = async (email: string) => {
+    return await resendOtpApi(email);
   };
 
   const logout = () => {
@@ -56,7 +71,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, verifyOtp, resendOtp, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -69,3 +84,4 @@ export const useAuth = () => {
   }
   return context;
 };
+

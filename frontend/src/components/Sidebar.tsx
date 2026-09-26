@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, BarChart3, AlertTriangle, Settings, LogOut, ShieldCheck, Activity } from 'lucide-react';
+import { LayoutDashboard, BarChart3, AlertTriangle, Settings, LogOut, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export const Sidebar = () => {
@@ -8,12 +8,10 @@ export const Sidebar = () => {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">
-          <Activity size={22} color="white" />
-        </div>
+        <img src="/logo.png" alt="TCS Logo" className="sidebar-logo-img" style={{ height: '42px', objectFit: 'contain' }} />
         <div>
           <div className="sidebar-title">TCS Portal</div>
-          <div className="sidebar-subtitle">Traffic AI System</div>
+          <div className="sidebar-subtitle">Traffic Congestion System</div>
         </div>
       </div>
 

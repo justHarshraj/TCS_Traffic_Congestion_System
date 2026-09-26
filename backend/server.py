@@ -8,6 +8,7 @@ import ssl
 from email.message import EmailMessage
 import certifi
 try:
+    # pyrefly: ignore [missing-import]
     from dotenv import load_dotenv
     load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 except ImportError:
@@ -25,6 +26,7 @@ from location_service import get_device_location
 from database import init_db, save_alert, get_all_alerts, get_user_by_email, seed_default_admin, create_user, compute_severity
 from auth import hash_password, verify_password, create_token, require_auth, get_current_user_from_request
 from telegram_service import send_telegram_photo, send_telegram_message, get_latest_chat_id
+from otp_service import generate_otp, verify_otp, send_otp_via_gmail_smtp
 
 app = Flask(__name__)
 
@@ -429,6 +431,54 @@ def login():
     if not user or not verify_password(password, user['password']):
         return jsonify({"success": False, "error": "Invalid email or password."}), 401
 
+    # Generate 6-digit OTP code for Gmail SMTP authentication
+    otp_code = generate_otp(user['email'], user['id'])
+
+    # Determine destination email for Gmail SMTP dispatch
+    destination_email = user['email']
+    if destination_email.endswith(".local") or "@" not in destination_email:
+        raw_receiver = global_state["settings"].get("receiver_email", "")
+        recipients = [e.strip() for e in raw_receiver.replace(';', ',').split(',') if e.strip() and "@" in e]
+        if recipients:
+            destination_email = recipients[0]
+        else:
+            destination_email = os.environ.get("TCS_SENDER_EMAIL", "jenarakeshku@gmail.com")
+
+    # Dispatch OTP via Gmail SMTP SSL (port 465)
+    smtp_success, smtp_msg = send_otp_via_gmail_smtp(destination_email, otp_code)
+
+    return jsonify({
+        "success": True,
+        "otp_required": True,
+        "email": user['email'],
+        "sent_to": destination_email,
+        "smtp_sent": smtp_success,
+        "message": f"OTP confirmation code sent to {destination_email} via Gmail SMTP." if smtp_success else f"OTP generated (SMTP: {smtp_msg})",
+        "dev_otp": otp_code
+    })
+
+
+@app.route('/api/auth/verify-otp', methods=['POST'])
+def verify_otp_endpoint():
+    data = request.get_json(silent=True) or {}
+    email = data.get('email', '').strip()
+    otp_code = data.get('otp', '').strip()
+
+    if not email or not otp_code:
+        return jsonify({"success": False, "error": "Email and OTP code are required."}), 400
+
+    valid, msg, user_id = verify_otp(email, otp_code)
+    if not valid:
+        return jsonify({"success": False, "error": msg}), 400
+
+    user = get_user_by_email(email)
+    if not user and user_id:
+        from database import get_user_by_id
+        user = get_user_by_id(user_id)
+
+    if not user:
+        return jsonify({"success": False, "error": "User account not found."}), 404
+
     token = create_token(user['id'], user['role'])
     user_data = {
         "id": user['id'],
@@ -436,7 +486,41 @@ def login():
         "email": user['email'],
         "role": user['role']
     }
-    return jsonify({"success": True, "token": token, "user": user_data})
+    return jsonify({"success": True, "token": token, "user": user_data, "message": "OTP verified successfully."})
+
+
+@app.route('/api/auth/resend-otp', methods=['POST'])
+def resend_otp_endpoint():
+    data = request.get_json(silent=True) or {}
+    email = data.get('email', '').strip()
+
+    if not email:
+        return jsonify({"success": False, "error": "Email is required."}), 400
+
+    user = get_user_by_email(email)
+    if not user:
+        return jsonify({"success": False, "error": "User account not found."}), 404
+
+    otp_code = generate_otp(user['email'], user['id'])
+
+    destination_email = user['email']
+    if destination_email.endswith(".local") or "@" not in destination_email:
+        raw_receiver = global_state["settings"].get("receiver_email", "")
+        recipients = [e.strip() for e in raw_receiver.replace(';', ',').split(',') if e.strip() and "@" in e]
+        if recipients:
+            destination_email = recipients[0]
+        else:
+            destination_email = os.environ.get("TCS_SENDER_EMAIL", "jenarakeshku@gmail.com")
+
+    smtp_success, smtp_msg = send_otp_via_gmail_smtp(destination_email, otp_code)
+
+    return jsonify({
+        "success": True,
+        "message": f"New OTP code sent to {destination_email} via Gmail SMTP." if smtp_success else f"New OTP code generated. ({smtp_msg})",
+        "smtp_sent": smtp_success,
+        "dev_otp": otp_code
+    })
+
 
 
 @app.route('/api/auth/me', methods=['GET'])
